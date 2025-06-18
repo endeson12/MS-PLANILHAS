@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora de Desconto Aleatório em Excel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        /* Estilo para o loader */
+        .loader {
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: none; /* Escondido por padrão */
+            margin: 10px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Adiciona um pouco mais de espaço vertical entre os elementos do formulário */
+        form > div {
+            margin-bottom: 1.5rem; /* Equivalente a mb-6 do Tailwind */
+        }
+
+        /* Melhora a aparência da tabela em telas menores */
+        .table-container {
+            max-height: 60vh; /* Limita a altura da tabela */
+            overflow-y: auto; /* Adiciona scroll vertical se necessário */
+        }
+        th, td {
+            padding: 0.75rem; /* p-3 */
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb; /* border-gray-200 */
+        }
+        th {
+            background-color: #f9fafb; /* bg-gray-50 */
+            font-weight: 600; /* font-semibold */
+            position: sticky; /* Mantém o cabeçalho visível */
+            top: 0;
+            z-index: 10;
+        }
+        tbody tr:nth-child(even) {
+            background-color: #f9fafb; /* bg-gray-50 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans p-4 md:p-8">
+
+    <div class="container mx-auto max-w-4xl bg-white p-6 md:p-8 rounded-lg shadow-md">
+
+        <h1 class="text-2xl md:text-3xl font-bold text-gray-800 mb-6 text-center">Calculadora de Desconto Aleatório em Excel</h1>
+
+        <p class="text-gray-600 mb-6 text-center">
+            Faça o upload de um arquivo Excel (.xlsx, .xls). Informe o nome exato da coluna que contém os preços unitários.
+            A aplicação calculará um desconto aleatório (30% a 50%) para cada preço e mostrará os resultados.
+        </p>
+
+        <form id="uploadForm" class="mb-8">
+            <div>
+                <label for="fileInput" class="block text-sm font-medium text-gray-700 mb-1">1. Selecione o arquivo Excel:</label>
+                <input type="file" id="fileInput" name="fileInput" accept=".xlsx, .xls" required
+                       class="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            </div>
+
+            <div>
+                <label for="columnName" class="block text-sm font-medium text-gray-700 mb-1">2. Nome Exato da Coluna de Preços Unitários:</label>
+                <input type="text" id="columnName" name="columnName" required placeholder="Ex: Valor Unitário"
+                       class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm">
+            </div>
+
+            <div class="text-center">
+                <button type="submit"
+                        class="inline-flex justify-center py-2 px-6 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                        id="submitButton">
+                    Processar Arquivo
+                </button>
+            </div>
+        </form>
+
+        <div id="loader" class="loader"></div>
+
+        <div id="messageArea" class="mt-4 text-center"></div>
+
+        <div id="resultsArea" class="mt-8 hidden">
+            <h2 class="text-xl md:text-2xl font-semibold text-gray-700 mb-4">Resultados</h2>
+            <div class="flex justify-end mb-4">
+                 <button id="downloadButton"
+                        class="py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    Baixar Resultados em Excel
+                </button>
+            </div>
+            <div class="table-container border border-gray-200 rounded-lg shadow-sm">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead id="resultsHeader">
+                        </thead>
+                    <tbody id="resultsBody" class="bg-white divide-y divide-gray-200">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Elementos do DOM
+        const uploadForm = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('fileInput');
+        const columnNameInput = document.getElementById('columnName');
+        const messageArea = document.getElementById('messageArea');
+        const resultsArea = document.getElementById('resultsArea');
+        const resultsHeader = document.getElementById('resultsHeader');
+        const resultsBody = document.getElementById('resultsBody');
+        const downloadButton = document.getElementById('downloadButton');
+        const submitButton = document.getElementById('submitButton');
+        const loader = document.getElementById('loader');
+
+        let processedData = []; // Armazena os dados processados para download
+
+        // Função para exibir mensagens
+        function showMessage(message, type = 'info') {
+            messageArea.innerHTML = `<div class="p-4 rounded-md ${
+                type === 'error' ? 'bg-red-100 text-red-700' :
+                type === 'success' ? 'bg-green-100 text-green-700' :
+                'bg-blue-100 text-blue-700'
+            }" role="alert">${message}</div>`;
+        }
+
+        // Função para limpar mensagens e resultados
+        function clearPreviousState() {
+            messageArea.innerHTML = '';
+            resultsArea.classList.add('hidden');
+            resultsHeader.innerHTML = '';
+            resultsBody.innerHTML = '';
+            processedData = [];
+            loader.style.display = 'none';
+            submitButton.disabled = false;
+        }
+
+        // Função para processar o arquivo Excel
+        async function handleFile(file, priceColumnName) {
+            clearPreviousState();
+            loader.style.display = 'block'; // Mostra o loader
+            submitButton.disabled = true; // Desabilita o botão durante o processamento
+
+            if (!file) {
+                showMessage('Por favor, selecione um arquivo Excel.', 'error');
+                loader.style.display = 'none';
+                submitButton.disabled = false;
+                return;
+            }
+
+            if (!priceColumnName) {
+                showMessage('Por favor, informe o nome da coluna de preços.', 'error');
+                loader.style.display = 'none';
+                submitButton.disabled = false;
+                return;
+            }
+
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    // Lê o arquivo Excel usando SheetJS
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    // Pega a primeira planilha do arquivo
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+
+                    // Converte a planilha para um array de objetos JSON
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // header: 1 para obter array de arrays
+
+                    if (jsonData.length === 0) {
+                        throw new Error("A planilha está vazia.");
+                    }
+
+                    // Encontra o índice da coluna de preço (case-insensitive e remove espaços extras)
+                    const headers = jsonData[0].map(h => String(h).trim());
+                    const priceColumnIndex = headers.findIndex(header => header.toLowerCase() === priceColumnName.trim().toLowerCase());
+
+                    if (priceColumnIndex === -1) {
+    throw new Error(A coluna "${priceColumnName}" não foi encontrada na planilha. Verifique o nome exato (incluindo maiúsculas/minúsculas e espaços). Cabeçalhos encontrados: ${headers.join(', ')});
+}
+
+
+                    // Processa os dados linha por linha
+                    processedData = [];
+const newHeaders = [...headers, 'Desconto Aplicado (%)', Preço Final (${priceColumnName})];
+processedData.push(newHeaders); // Adiciona o novo cabeçalho
+
+
+                    for (let i = 1; i < jsonData.length; i++) { // Começa da linha 1 (dados)
+                        const row = jsonData[i];
+                        const originalPrice = row[priceColumnIndex];
+                        let discountPercent = null;
+                        let finalPrice = null;
+
+                        // Tenta converter o preço para número
+                        const price = Number(originalPrice);
+
+                        if (!isNaN(price) && price > 0) {
+                            // Gera desconto aleatório entre 0.30 e 0.50
+                            const discountFactor = Math.random() * (0.50 - 0.30) + 0.30;
+                            discountPercent = (discountFactor * 100).toFixed(2); // Formata para 2 casas decimais
+                            finalPrice = (price * (1 - discountFactor)).toFixed(2); // Formata para 2 casas decimais
+                        } else {
+                            // Mantém o preço original se não for um número válido ou for <= 0
+                             finalPrice = originalPrice; // Mantém o valor original (pode ser texto, vazio, etc.)
+                             discountPercent = ''; // Sem desconto aplicável
+                        }
+
+                        // Adiciona a linha processada (garante que tenha o mesmo número de colunas que o cabeçalho)
+                        const processedRow = [...row];
+                        // Preenche colunas faltantes se a linha original for mais curta que o cabeçalho
+                        while (processedRow.length < headers.length) {
+                            processedRow.push('');
+                        }
+                        processedRow.push(discountPercent !== null ? discountPercent : '');
+                        processedRow.push(finalPrice !== null ? finalPrice : '');
+                        processedData.push(processedRow);
+                    }
+
+                    // Exibe os resultados na tabela HTML
+                    displayResults(processedData);
+                    showMessage('Arquivo processado com sucesso!', 'success');
+                    resultsArea.classList.remove('hidden');
+
+                } catch (error) {
+                    console.error("Erro ao processar o arquivo:", error);
+showMessage(Erro ao processar o arquivo: ${error.message}, 'error');
+
+                } finally {
+                    loader.style.display = 'none'; // Esconde o loader
+                    submitButton.disabled = false; // Reabilita o botão
+                }
+            };
+
+            reader.onerror = function() {
+                showMessage('Erro ao ler o arquivo.', 'error');
+                loader.style.display = 'none';
+                submitButton.disabled = false;
+            };
+
+            // Lê o arquivo como ArrayBuffer
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Função para exibir os resultados na tabela
+        function displayResults(data) {
+            resultsHeader.innerHTML = ''; // Limpa cabeçalho anterior
+            resultsBody.innerHTML = ''; // Limpa corpo anterior
+
+            if (data.length === 0) return;
+
+            // Cria o cabeçalho da tabela
+            const headerRow = document.createElement('tr');
+            data[0].forEach(headerText => {
+                const th = document.createElement('th');
+                th.scope = "col";
+                th.className = "px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"; // Classes Tailwind
+                th.textContent = headerText;
+                headerRow.appendChild(th);
+            });
+            resultsHeader.appendChild(headerRow);
+
+            // Cria as linhas de dados da tabela
+            for (let i = 1; i < data.length; i++) {
+                const dataRow = document.createElement('tr');
+                 data[i].forEach((cellData, index) => {
+                    const td = document.createElement('td');
+                    td.className = "px-3 py-4 whitespace-nowrap text-sm text-gray-700"; // Classes Tailwind
+                    // Formata números para terem aparência de moeda (opcional, ajustável)
+                    // Verifica se é a coluna de desconto ou preço final
+                    const isDiscountColumn = index === data[0].length - 2;
+                    const isFinalPriceColumn = index === data[0].length - 1;
+                    const originalPriceColumnIndex = data[0].findIndex(h => h.toLowerCase() === columnNameInput.value.trim().toLowerCase());
+
+                    if ((isFinalPriceColumn || index === originalPriceColumnIndex) && !isNaN(parseFloat(cellData))) {
+                         // Tenta formatar como moeda BRL, mas mantém o valor original se falhar
+                         try {
+                            //td.textContent = parseFloat(cellData).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                             td.textContent = parseFloat(cellData).toFixed(2).replace('.', ','); // Formato simples com vírgula
+                         } catch {
+                            td.textContent = cellData;
+                         }
+                        } else if (isDiscountColumn && !isNaN(parseFloat(cellData))) {
+    td.textContent = ${parseFloat(cellData).toFixed(2).replace('.', ',')}%;
+} else {
+    td.textContent = cellData === null || cellData === undefined ? '' : cellData; // Trata nulos/undefined
+}
+dataRow.appendChild(td);
+});
+resultsBody.appendChild(dataRow);
+}
+}
+
+
+        // Função para gerar e baixar o arquivo Excel com os resultados
+        function downloadResults() {
+    if (processedData.length === 0) {
+        showMessage('Não há dados processados para baixar.', 'error');
+        return;
+    }
+
+    try {
+        // Cria uma nova planilha (worksheet) a partir dos dados processados
+        const ws = XLSX.utils.aoa_to_sheet(processedData);
+
+        // Cria um novo livro de trabalho (workbook)
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Resultados com Desconto'); // Nome da aba
+
+        // Gera o nome do arquivo de saída
+        const originalFilename = fileInput.files[0].name;
+        const baseName = originalFilename.substring(0, originalFilename.lastIndexOf('.')) || originalFilename;
+        const downloadFilename = ${baseName}_com_desconto.xlsx;
+
+        // Gera o arquivo Excel e dispara o download
+        XLSX.writeFile(wb, downloadFilename);
+        showMessage('Arquivo Excel gerado para download.', 'success');
+    } catch (error) {
+        console.error("Erro ao gerar o arquivo Excel:", error);
+        showMessage(Erro ao gerar o arquivo Excel: ${error.message}, 'error');
+    }
+}
+
+// Event Listener para o envio do formulário
+uploadForm.addEventListener('submit', function(event) {
+    event.preventDefault(); // Impede o envio padrão do formulário
+    const file = fileInput.files[0];
+    const columnName = columnNameInput.value;
+    handleFile(file, columnName);
+});
+
+// Event Listener para o botão de download
+downloadButton.addEventListener('click', downloadResults);
+</script>
+</body>
+</html>
